@@ -1,0 +1,70 @@
+import numpy as np
+import pandas as pd
+from numpy import math
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_squared_error
+import seaborn as sns
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
+
+data = pd.read_csv('/content/drive/MyDrive/SeoulBikeData.csv', encoding= 'unicode_escape')
+
+#data distribution for target variable
+plt.figure(figsize=(9,8))
+sns.distplot(data['Rented Bike Count'],color="r")
+
+# square_root transformation
+plt.figure(figsize=(10,8))
+sns.distplot(np.sqrt(data['Rented Bike Count']),color="r")
+
+continous_features = data.describe().columns
+continous_features = continous_features[1:]
+continous_features
+
+for col in continous_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    continous_feature = data[col]
+    continous_feature.hist(bins=50, ax = ax)
+    ax.axvline(continous_feature.mean(), color='magenta', linestyle='dashed', linewidth=2)
+    ax.axvline(continous_feature.median(), color='cyan', linestyle='dashed', linewidth=2)    
+    ax.set_title(col)
+plt.show()
+
+for col in continous_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    continous_feature = data[col]
+    label = data['Rented Bike Count']
+    correlation = continous_feature.corr(label)
+    plt.scatter(x=continous_feature, y=label)
+    plt.xlabel(col)
+    plt.ylabel('Rented Bike Count')
+    ax.set_title('Rented Bike Count vs ' + col + '- correlation: ' + str(correlation))
+    z = np.polyfit(data[col], data['Rented Bike Count'], 1)
+    y_hat = np.poly1d(z)(data[col])
+
+    plt.plot(data[col], y_hat, "r--", lw=1)
+
+plt.show()
+
+#ploting line graph
+# group by Hrs and get average Bikes rented, and precent change
+avg_rent_hrs = data.groupby('Hour')['Rented Bike Count'].mean()
+
+# plot average rent over time(hrs)
+plt.figure(figsize=(20,4))
+a=avg_rent_hrs.plot(legend=True,marker='o',title="Average Bikes Rented Per Hr")
+a.set_xticks(range(len(avg_rent_hrs)));
+a.set_xticklabels(avg_rent_hrs.index.tolist(), rotation=85);
+
+sns.catplot(x='Seasons',y='Rented Bike Count',data=data, size=8)
+
+plt.figure(figsize=(15,8))
+correlation = data.corr()
+sns.heatmap(abs(correlation), annot=True, cmap='coolwarm'
