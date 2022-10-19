@@ -1,0 +1,515 @@
+# <b><u> Project Title : Seoul Bike Sharing Demand Prediction </u></b>
+
+## <b> Problem Description </b>
+
+### Currently Rental bikes are introduced in many urban cities for the enhancement of mobility comfort. It is important to make the rental bike available and accessible to the public at the right time as it lessens the waiting time. Eventually, providing the city with a stable supply of rental bikes becomes a major concern. The crucial part is the prediction of bike count required at each hour for the stable supply of rental bikes.
+
+
+## <b> Data Description </b>
+
+### <b> The dataset contains weather information (Temperature, Humidity, Windspeed, Visibility, Dewpoint, Solar radiation, Snowfall, Rainfall), the number of bikes rented per hour and date information.</b>
+
+
+### <b>Attribute Information: </b>
+
+* ### Date : year-month-day
+* ### Rented Bike count - Count of bikes rented at each hour
+* ### Hour - Hour of he day
+* ### Temperature-Temperature in Celsius
+* ### Humidity - %
+* ### Windspeed - m/s
+* ### Visibility - 10m
+* ### Dew point temperature - Celsius
+* ### Solar radiation - MJ/m2
+* ### Rainfall - mm
+* ### Snowfall - cm
+* ### Seasons - Winter, Spring, Summer, Autumn
+* ### Holiday - Holiday/No holiday
+* ### Functional Day - NoFunc(Non Functional Hours), Fun(Functional hours)
+
+import numpy as np
+import pandas as pd
+from numpy import math
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+import seaborn as sns
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
+from sklearn.tree import DecisionTreeClassifier
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+data = pd.read_csv('/content/drive/MyDrive/Data/SeoulBikeData.csv', encoding= 'unicode_escape')
+
+data.head()
+
+data.describe(include='all')
+
+data.describe()
+
+data.info()
+
+#check for duplicates
+len(data[data.duplicated()])
+
+#data distribution for target variable
+plt.figure(figsize=(9,8))
+sns.distplot(data['Rented Bike Count'],color="r")
+
+# square_root transformation
+plt.figure(figsize=(10,8))
+sns.distplot(np.sqrt(data['Rented Bike Count']),color="r")
+
+data_new = data.copy()
+
+#feature engg to covert days in numeric
+days= {'Sunday':7,'Monday':1,'Tuesday':2,'Wednesday':3,'Thursday':4,'Friday':5,'Saturday':6}
+
+def get_days(x):
+  return days[x]
+
+
+#Date columns to Date format conversion
+data_new['Date']= pd.to_datetime(data_new['Date'])
+
+# extracting day,month, day of week and weekdays/weekend from date column
+data_new['Date']=pd.to_datetime(data_new['Date'])
+data_new['month'] = data_new['Date'].apply(lambda x : x.month)
+data_new['day_of_week'] = data_new['Date'].dt.day_name()
+
+
+data_new['weekdays_weekend']=data_new['day_of_week'].apply(lambda x : get_days(x))
+
+data_new=data_new.drop(columns=['Date','day_of_week'],axis=1)
+
+data_new.head()
+
+data_new['weekdays_weekend'].unique()
+
+data_new['month'].unique()
+
+continous_features = ['Temperature(°C)', 'Humidity(%)', 'Wind speed (m/s)', 'Visibility (10m)', 'Dew point temperature(°C)', 'Solar Radiation (MJ/m2)', 'Rainfall(mm)', 'Snowfall (cm)']
+continous_features
+
+data_new.info()
+
+#check for each features data distribution
+for col in continous_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    continous_feature = data_new[col]
+    continous_feature.hist(bins=50, ax = ax)
+    ax.axvline(continous_feature.mean(), color='magenta', linestyle='dashed', linewidth=2)
+    ax.axvline(continous_feature.median(), color='cyan', linestyle='dashed', linewidth=2)    
+    ax.set_title(col)
+plt.show()
+
+#check for each continous features data with square root of the values
+for col in continous_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    continous_feature = np.sqrt(data_new[col])
+    continous_feature.hist(bins=50, ax = ax)
+    ax.axvline(continous_feature.mean(), color='magenta', linestyle='dashed', linewidth=2)
+    ax.axvline(continous_feature.median(), color='cyan', linestyle='dashed', linewidth=2)    
+    ax.set_title(col)
+plt.show()
+
+#check for continous feature vs target variable
+for col in continous_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    continous_feature = data_new[col]
+    label = data_new['Rented Bike Count']
+    correlation = continous_feature.corr(label)
+    plt.scatter(x=continous_feature, y=label)
+    plt.xlabel(col)
+    plt.ylabel('Rented Bike Count')
+    ax.set_title('Rented Bike Count vs ' + col + '- correlation: ' + str(correlation))
+    z = np.polyfit(data_new[col], data_new['Rented Bike Count'], 1)
+    y_hat = np.poly1d(z)(data_new[col])
+
+    plt.plot(data_new[col], y_hat, "r--", lw=1)
+
+plt.show()
+
+#ploting line graph
+# group by Hrs and get average Bikes rented, and precent change
+avg_rent_hrs = data_new.groupby('Hour')['Rented Bike Count'].mean()
+
+# plot average rent over time(hrs)
+plt.figure(figsize=(20,4))
+a=avg_rent_hrs.plot(legend=True,marker='o',title="Average Bikes Rented Per Hr")
+a.set_xticks(range(len(avg_rent_hrs)));
+a.set_xticklabels(avg_rent_hrs.index.tolist(), rotation=85);
+
+sns.catplot(x='Seasons',y='Rented Bike Count',data=data_new, size=8)
+
+#check for multicollinearity
+plt.figure(figsize=(15,8))
+correlation = data_new.corr()
+sns.heatmap(abs(correlation), annot=True, cmap='coolwarm')
+
+data_new['temperature'] = 0.5*data_new['Temperature(°C)'] + 0.5*data_new['Dew point temperature(°C)']
+
+#remove multicollinearity by using VIF technique
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+def calc_vif(X):
+
+    # Calculating VIF
+    vif = pd.DataFrame()
+    vif["variables"] = X.columns
+    vif["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+
+    return(vif)
+
+continous_feature_df = pd.DataFrame(data_new[continous_features])
+
+continous_feature_df
+
+calc_vif(data_new[[i for i in continous_feature_df]])
+
+calc_vif(data_new[[i for i in continous_feature_df if i not in ['Dew point temperature(°C)','Temperature(°C)']]])
+
+data_new.columns
+
+categorical_features = ['Hour','Seasons','Holiday','Functioning Day', 'month', 'weekdays_weekend']
+
+categorical_features_df= pd.DataFrame(data_new[categorical_features])
+
+categorical_features_df.head()
+
+#check for each categorical features data
+for col in categorical_features:
+    counts = data_new[col].value_counts().sort_index()
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    counts.plot.bar(ax = ax, color='steelblue')
+    ax.set_title(col + ' counts')
+    ax.set_xlabel(col) 
+    ax.set_ylabel("Frequency")
+plt.show()
+
+#check variation of categorical features with target variable
+for col in categorical_features:
+    fig = plt.figure(figsize=(9, 6))
+    ax = fig.gca()
+    data_new.boxplot(column = 'Rented Bike Count', by = col, ax = ax)
+    ax.set_title('Label by ' + col)
+    ax.set_ylabel("Rented Bike Count")
+plt.show()
+
+data_new.head()
+
+data_new['Holiday'] = data_new['Holiday'].apply(lambda x : 1 if x == 'Holiday' else 0)
+
+data_new['Functioning Day'] = data_new['Functioning Day'].apply(lambda x : 1 if x == 'Yes' else 0)
+
+data_new = pd.get_dummies(data_new, columns=["Seasons"], prefix=["seasond"])
+
+categorical_features = ['Hour','Holiday','Functioning Day', 'month', 'weekdays_weekend', 'seasond_Autumn', 'seasond_Spring', 'seasond_Summer', 'seasond_Winter']
+
+continous_final_features = ['Humidity(%)', 'Wind speed (m/s)', 'Visibility (10m)', 'Solar Radiation (MJ/m2)', 'Rainfall(mm)', 'Snowfall (cm)', 'temperature']
+categorical_final_features = ['Hour','Holiday','Functioning Day', 'month', 'weekdays_weekend', 'seasond_Autumn', 'seasond_Spring', 'seasond_Summer', 'seasond_Winter']
+
+final_features = continous_final_features + categorical_final_features
+final_features
+
+len(final_features)
+
+#transformation of data 
+from scipy.stats import zscore
+#Train test split
+X = data_new[final_features].apply(zscore)
+
+y = np.sqrt(data_new['Rented Bike Count'])
+
+#create a function to compute Evaluation matrix
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
+score = pd.DataFrame(index = ['MSE', 'RMSE', 'r2', 'Adjusted r2'])
+def get_evaluation_matrix(y_test, y_pred):
+  
+  MSE  = mean_squared_error((y_test)**2, (y_pred)**2)
+  
+  RMSE = np.sqrt(MSE)
+  
+  r2 = r2_score((y_test)**2, (y_pred)**2)
+  
+  Adj_r2 = 1-(1-r2_score((y_test)**2, (y_pred)**2))*((X_test.shape[0]-1)/(X_test.shape[0]-X_test.shape[1]-1))
+  
+  lst = [MSE, RMSE, r2, Adj_r2]
+  return lst
+
+### Splitting train and test data
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 0)
+
+
+print(X_train.shape)
+print(X_test.shape)
+
+### Linear Regression
+
+from sklearn.linear_model import LinearRegression
+reg = LinearRegression().fit(X_train, y_train)
+
+reg.score(X_train, y_train)
+
+reg.coef_
+
+reg.intercept_
+
+y_pred = reg.predict(X_test)
+
+print(y_pred)
+
+result = get_evaluation_matrix(y_test,y_pred)
+score['Linear regression'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+## Lasso
+
+
+from sklearn.linear_model import Lasso
+lasso  = Lasso(alpha=0.005)
+
+lasso.fit(X_train, y_train)
+
+lasso.score(X_train, y_train)
+
+lasso.coef_
+
+## Lasso using CV
+
+
+from sklearn.linear_model import Lasso
+from sklearn.model_selection import GridSearchCV
+lasso_ = Lasso()
+parameters = {'alpha': [1e-15,1e-10,1e-8,1e-5,1e-4,1e-3,1e-2,1,5,10,20,30,40,45,50,55,60,100]}
+lasso_regressor = GridSearchCV(lasso_, parameters, scoring='neg_mean_squared_error', cv=5)
+lasso_regressor.fit(X_train,y_train)
+
+print("The optimum alpha value is found out to be :" ,lasso_regressor.best_params_)
+print("\nUsing ",lasso_regressor.best_params_, " the negative mean squared error is: ", lasso_regressor.best_score_)
+
+y_pred_lasso = lasso_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_lasso)
+score['Lasso'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_lasso[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+## Ridge
+
+
+from sklearn.linear_model import Ridge
+ridge = Ridge()
+parameters = {'alpha': [1e-15,1e-10,1e-8,1e-5,1e-4,1e-3,1e-2,1,5,10,20,30,40,45,50,55,60,100]}
+ridge_regressor = GridSearchCV(ridge, parameters, scoring='neg_mean_squared_error', cv=5)
+ridge_regressor.fit(X_train,y_train)
+
+print("The best fit alpha value is found out to be :" ,ridge_regressor.best_params_)
+print("\nUsing ",ridge_regressor.best_params_, " the negative mean squared error is: ", ridge_regressor.best_score_)
+
+y_pred_ridge = ridge_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_ridge)
+score['Ridge'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_ridge[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+## ElasticNet
+
+
+from sklearn.linear_model import ElasticNet
+
+elastic = ElasticNet()
+parameters = {'alpha': [1e-15,1e-13,1e-10,1e-8,1e-5,1e-4,1e-3,1e-2,1e-1,1,5,10,20,30,40,45,50,55,60,100],'l1_ratio':[0.3,0.4,0.5,0.6,0.7,0.8]}
+elastic_regressor = GridSearchCV(elastic, parameters, scoring='neg_mean_squared_error',cv=5)
+elastic_regressor.fit(X_train, y_train)
+
+print("The best fit alpha value is found out to be :" ,elastic_regressor.best_params_)
+print("\nUsing ",elastic_regressor.best_params_, " the negative mean squared error is: ", elastic_regressor.best_score_)
+
+y_pred_elastic = elastic_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_elastic)
+score['Elastic net'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_elastic[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+## Descision trees
+
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score
+dt_regeressor = DecisionTreeRegressor(random_state = 100)
+dt_regeressor.fit(X_train,y_train)
+
+y_pred_dt = dt_regeressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_dt)
+score['Decision tree'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_dt[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+### Bagging
+
+from sklearn.ensemble import BaggingRegressor
+bag_model=BaggingRegressor()
+
+# creating param dict to check diffirent value of parameter
+n_estimators=[80,100,150]
+
+params = {'n_estimators':n_estimators}
+
+bag_regressor= GridSearchCV(bag_model,param_grid=params,verbose=0)
+
+bag_regressor.fit(X_train,y_train)
+
+y_pred_bag = bag_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_bag)
+score['Bagging'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_bag[:50])**2)
+plt.plot(np.array((y_test[:50])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+### Random Forest
+
+from sklearn.ensemble import RandomForestRegressor
+regressor_rf = RandomForestRegressor(n_estimators = 100, random_state = 0) 
+regressor_rf.fit(X_train, y_train)
+
+y_pred_rf = regressor_rf.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_rf)
+score['Random forest'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_rf[:100])**2)
+plt.plot(np.array((y_test[:100])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+### Gradient Boosting Regressor
+
+from sklearn.ensemble import GradientBoostingRegressor
+gb_model=GradientBoostingRegressor()
+
+# creating param dict to check diffirent value of parameter
+n_estimators=[80,100,150]
+max_depth=[15,20,30]
+
+params = {'n_estimators':n_estimators,'max_depth':max_depth }
+
+#grid search for gradient bossting
+gb_regressor= GridSearchCV(gb_model,param_grid=params,verbose=0)
+
+gb_regressor.fit(X_train,y_train)
+
+y_pred_gb = gb_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_gb)
+score['Gradient boosting'] = result
+print(score)
+
+plt.figure(figsize=(15,12))
+plt.plot((y_pred_gb[:50])**2)
+plt.plot(np.array((y_test[:50])**2))
+plt.legend(["Predicted","Actual"])
+plt.show()
+
+### Extreme Gradient boost
+
+from xgboost import XGBRegressor
+xgb_model=XGBRegressor()
+
+#creating param dict for gridsearch
+n_estimators=[80,100,150]
+max_depth=[15,20,30]
+
+
+params = {'n_estimators':n_estimators,'max_depth':max_depth }
+
+#creating xgb grid model
+xgb_regressor= GridSearchCV(xgb_model,param_grid=params,verbose=0)
+
+xgb_regressor.fit(X_train,y_train)
+
+y_prec_xbg = xgb_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_prec_xbg)
+score['Extreme gb'] = result
+print(score)
+
+### lightGBM
+
+import lightgbm as lgb
+
+lgbr=lgb.LGBMRegressor()
+
+# finding the best parameters for XGBRegressor by gridsearchcv
+lgb_para={'n_estimators': [150,200,250],'max_depth': [7,10,13]}
+lgb_regressor=GridSearchCV(estimator=lgbr,param_grid=lgb_para,cv=5,scoring='neg_mean_squared_error',verbose=5,n_jobs=-1)
+
+lgb_regressor.fit(X_train,y_train)
+
+y_pred_lgb = lgb_regressor.predict(X_test)
+
+result = get_evaluation_matrix(y_test,y_pred_lgb)
+score['Light gb'] = result
+print(score)
+
+score
+
+final_matrices=score.transpose().reset_index().rename(columns={'index':'Models'})
+
+final_matrices
+
+### Lets compare all the model with their permormance
+
+plt.figure(figsize=(15,10))
+sns.barplot(x='Models',y='Adjusted r2',data=final_matrices)
+
+### From above chart we can connclude that gradient boosting techniques are performing good and best fits our model
+
+### We can choose Light Gradient Boosting for our model due to its performance score with Adjusted R2 score of 91.9%
